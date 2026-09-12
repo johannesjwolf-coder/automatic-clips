@@ -1,0 +1,15 @@
+services:
+  clipcontrol:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
+    volumes:
+      - clipcontrol-data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+volumes:
+  clipcontrol-data:
