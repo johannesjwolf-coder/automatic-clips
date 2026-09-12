@@ -1,0 +1,30 @@
+{
+  "name": "ClipControl · Browser-Studio",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "forwardPorts": [
+    8000
+  ],
+  "portsAttributes": {
+    "8000": {
+      "label": "ClipControl",
+      "onAutoForward": "openBrowser",
+      "visibility": "private",
+      "protocol": "http"
+    }
+  },
+  "postCreateCommand": "bash scripts/setup-codespace.sh",
+  "postStartCommand": "bash scripts/start-codespace.sh",
+  "remoteUser": "vscode",
+  "secrets": {
+    "GEMINI_API_KEY": {
+      "description": "Google AI Studio API-Schlüssel für echte Videoanalysen. Ohne Schlüssel ist manuelles Schneiden möglich."
+    }
+  }
+}

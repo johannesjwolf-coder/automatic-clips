@@ -1,0 +1,12 @@
+CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), paused INTEGER NOT NULL DEFAULT 0, daily_limit INTEGER NOT NULL DEFAULT 0 CHECK(daily_limit BETWEEN 0 AND 100));
+INSERT INTO settings(id) VALUES(1);
+CREATE TABLE videos (id TEXT PRIMARY KEY, title TEXT NOT NULL, youtube_url TEXT, original TEXT, metadata TEXT, analysis TEXT, created TEXT NOT NULL, demo INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE jobs (id TEXT PRIMARY KEY, video_id TEXT NOT NULL REFERENCES videos(id), kind TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, stage TEXT NOT NULL, error TEXT, created TEXT NOT NULL, updated TEXT NOT NULL);
+CREATE INDEX idx_jobs_status_created ON jobs(status, created);
+CREATE UNIQUE INDEX idx_jobs_active_analysis ON jobs(video_id) WHERE kind='analysis' AND status IN ('queued','running');
+CREATE TABLE clips (id TEXT PRIMARY KEY, video_id TEXT NOT NULL REFERENCES videos(id), job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id), title TEXT NOT NULL, plan TEXT NOT NULL, status TEXT NOT NULL, file TEXT, metadata TEXT, created TEXT NOT NULL);
+CREATE TABLE usage (job_id TEXT PRIMARY KEY REFERENCES jobs(id), day TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER);
+CREATE INDEX idx_usage_day ON usage(day);
+CREATE TABLE events (id INTEGER PRIMARY KEY, message TEXT NOT NULL, detail TEXT, created TEXT NOT NULL);
+CREATE TABLE accounts (id TEXT PRIMARY KEY, platform TEXT NOT NULL, name TEXT NOT NULL, external_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'setup_required', paused INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, clip_id TEXT NOT NULL REFERENCES clips(id), account_id TEXT NOT NULL REFERENCES accounts(id), scheduled_at TEXT NOT NULL, timezone TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'blocked', UNIQUE(account_id,scheduled_at));

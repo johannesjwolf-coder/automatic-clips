@@ -1,0 +1,57 @@
+name: ClipControl verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      GEMINI_API_KEY: ""
+      CLIPCONTROL_DATA: /tmp/clipcontrol-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          pip install -r backend/requirements-lock.txt
+          pip install playwright
+      - name: Build frontend
+        run: |
+          npm --prefix frontend ci --no-audit --no-fund
+          npm --prefix frontend run build
+      - name: Backend and real rendering tests
+        run: python -m pytest tests/test_pipeline.py -v
+      - name: Install browser
+        run: python -m playwright install --with-deps chromium
+      - name: Browser and playback verification
+        run: |
+          python scripts/serve.py > /tmp/clipcontrol-server.log 2>&1 &
+          python tests/browser_smoke.py
+      - name: Build Docker runtime
+        run: docker build -t clipcontrol:test .
+      - name: Verify container startup
+        run: |
+          docker run -d --name clipcontrol-smoke -p 127.0.0.1:8001:8000 clipcontrol:test
+          python tests/container_smoke.py
+      - name: Record validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipcontrol-verification
+          path: |
+            test-results/
+            /tmp/clipcontrol-server.log
+            frontend/package-lock.json
+          retention-days: 7
