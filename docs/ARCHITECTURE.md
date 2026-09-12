@@ -31,7 +31,7 @@ Termine: blocked. Alle sind Entwürfe, weil kein Publishingadapter vorhanden ist
 pytest prüft URL-Validierung, Zeitumstellung, CSRF-Header, fehlenden Schlüssel, Auftragslimit, Pause, Neustart, Dateiprüfung, echte FFmpeg-Exports (Padding und Crop+Untertitel), Range-Wiedergabe, Accountzuordnung und doppelte Terminslots.
 Chromium prüft echten UI-Testvideo-Ablauf, Abspielbarkeit, Accounts, Einstellungen sowie 1440px/390px ohne horizontales Überlaufen.
 Gemini wird in isolierten Vertragstests simuliert; nicht als live getestet bezeichnen.
-Abhängigkeiten innerhalb unterstützter Major-Versionen; das beim CI-Build tatsächlich aufgelöste npm-Lockfile liegt im CI-Artefakt. Produktions-Releases müssen exakte Versionen/Container-Digests festschreiben.
+Die im erfolgreichen CI-Lauf aufgelösten Abhängigkeiten sind als frontend/package-lock.json und backend/requirements-lock.txt eingecheckt. Codespaces, Docker und CI installieren aus diesen Dateien. Container-Basisimages für Produktions-Releases zusätzlich über Digests festschreiben.
 
 ## Nächste Arbeit
 1. Echte Gemini-Aufrufe mit Betreiber-Schlüssel prüfen, Referenzvideo und Kosten messen.

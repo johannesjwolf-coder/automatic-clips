@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim AS frontend
 WORKDIR /src/frontend
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY frontend/package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
@@ -10,8 +10,8 @@ FROM python:3.12-slim-bookworm AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core tini \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+COPY backend/requirements*.txt backend/
+RUN pip install --no-cache-dir -r backend/requirements-lock.txt
 COPY backend/ backend/
 COPY scripts/ scripts/
 COPY --from=frontend /src/frontend/out frontend/out

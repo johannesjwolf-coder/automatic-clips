@@ -47,6 +47,7 @@ with httpx.Client(base_url=BASE,headers={"X-ClipControl":"1"},timeout=60) as c:
         page.wait_for_timeout(1500)
         assert video.evaluate("(v) => v.currentTime > 0 && v.videoWidth === 1080 && v.videoHeight === 1920")
         video.evaluate("(v) => v.pause()")
+        page.evaluate("window.scrollTo(0,0)")
         page.screenshot(path=str(out/"studio-desktop-rendered.png"),full_page=True)
         page.get_by_role("button",name="Zielaccounts",exact=True).click()
         page.get_by_label("Account-Name",exact=True).fill("QA-Account")
@@ -59,6 +60,7 @@ with httpx.Client(base_url=BASE,headers={"X-ClipControl":"1"},timeout=60) as c:
         page.get_by_text("Tageslimit gespeichert.",exact=True).wait_for()
         page.get_by_role("button",name="Studio",exact=True).click()
         page.set_viewport_size({"width":390,"height":844})
+        page.evaluate("window.scrollTo(0,0)")
         page.screenshot(path=str(out/"studio-mobile.png"),full_page=True)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Mobile horizontal overflow"
         page.get_by_role("button",name="Video hinzufügen",exact=True).click()

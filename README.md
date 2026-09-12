@@ -46,6 +46,7 @@ Codespaces verbraucht ggf. GitHub-Rechenzeit/Storage. Es stoppt bei Inaktivität
 
 ## Weitere Dokumentation
 
+- [Prüfergebnisse](docs/VALIDATION.md)
 - [Architektur, Entscheidungen und Fortschritt](docs/ARCHITECTURE.md)
 - [Betrieb, Einrichtung und nächster Schritt zu 24/7](docs/OPERATIONS.md)
 - [Offizielle API-Quellen](docs/INTEGRATIONS.md)

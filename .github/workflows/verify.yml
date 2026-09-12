@@ -25,11 +25,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-lock.txt
           pip install playwright
       - name: Build frontend
         run: |
-          npm --prefix frontend install --no-audit --no-fund
+          npm --prefix frontend ci --no-audit --no-fund
           npm --prefix frontend run build
       - name: Backend and real rendering tests
         run: python -m pytest tests/test_pipeline.py -v
@@ -39,6 +39,12 @@ jobs:
         run: |
           python scripts/serve.py > /tmp/clipcontrol-server.log 2>&1 &
           python tests/browser_smoke.py
+      - name: Build Docker runtime
+        run: docker build -t clipcontrol:test .
+      - name: Verify container startup
+        run: |
+          docker run -d --name clipcontrol-smoke -p 127.0.0.1:8001:8000 clipcontrol:test
+          python tests/container_smoke.py
       - name: Record validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
