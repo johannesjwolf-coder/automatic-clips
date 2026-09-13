@@ -35,6 +35,7 @@ async def safety(request: Request, call_next):
     if codespace and forwarding_domain:
         allowed_origins.add(f"https://{codespace}-8000.{forwarding_domain}")
     if origin and origin not in allowed_origins:
+        print("ClipControl rejected origin:", repr(origin), "allowed:", sorted(allowed_origins), flush=True)
         return JSONResponse({"detail": "Fremder Ursprung nicht erlaubt."}, status_code=403)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
