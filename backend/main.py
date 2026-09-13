@@ -27,7 +27,16 @@ async def safety(request: Request, call_next):
         return JSONResponse({"detail": "Anfrage stammt nicht aus dem Kontrollzentrum."}, status_code=403)
     origin = request.headers.get("origin")
     host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
-    if origin and origin not in ("https://" + host, "http://" + host):
+    allowed_origins = {"https://" + host, "http://" + host}
+    # Codespaces can replace Host without sending X-Forwarded-Host.
+    # Allow only this workspace's exact private forwarded-port origin.
+    codespace = os.getenv("CODESPACE_NAME")
+    forwarding_domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN")
+    if codespace and forwarding_domain:
+        allowed_origins.add(f"https://{codespace}-8000.{forwarding_domain}")
+        # GitHub forwarding rewrites Origin to this HTTPS loopback target.
+        allowed_origins.add("https://localhost:8000")
+    if origin and origin not in allowed_origins:
         return JSONResponse({"detail": "Fremder Ursprung nicht erlaubt."}, status_code=403)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"

@@ -143,3 +143,15 @@ def test_bad_gemini_timestamps_and_fake_files(client):
     r=client.post(f"/api/videos/{ident}/original",files={"file":("fake.mp4",b"not a video","video/mp4")})
     assert r.status_code == 422
     assert not client.get("/api/state").json()["videos"][0]["has_original"]
+
+def test_codespaces_origin(client, monkeypatch):
+    monkeypatch.setenv("CODESPACE_NAME", "example-workspace")
+    monkeypatch.setenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    headers = {"Origin": "https://example-workspace-8000.app.github.dev", "Host": "localhost:8000"}
+    assert client.post("/api/videos", headers=headers, json={"title": "Forwarded origin"}).status_code == 200
+    for origin in ["https://other-workspace-8000.app.github.dev", "https://example-workspace-8000.app.github.dev.evil.test", "http://example-workspace-8000.app.github.dev"]:
+        assert client.post("/api/videos", headers={**headers, "Origin": origin}, json={"title": "Blocked"}).status_code == 403
+    assert client.post("/api/videos", headers={**headers, "Host": "example-workspace-8000.app.github.dev", "Origin": "https://localhost:8000"}, json={"title": "Rewritten proxy origin"}).status_code == 200
+    monkeypatch.delenv("CODESPACE_NAME")
+    assert client.post("/api/videos", headers={**headers, "Host": "example-workspace-8000.app.github.dev", "Origin": "https://localhost:8000"}, json={"title": "No proxy"}).status_code == 403
+    assert client.post("/api/videos", headers=headers, json={"title": "Not Codespaces"}).status_code == 403
