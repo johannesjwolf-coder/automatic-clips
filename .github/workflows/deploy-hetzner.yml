@@ -27,10 +27,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: SSH-Schlüssel einrichten
+        env:
+          # Secret enthält den privaten Schlüssel Base64-kodiert als eine Zeile
+          # (Ausgabe von: base64 -w0 /root/.ssh/github_deploy auf dem Server).
+          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s' "$DEPLOY_SSH_KEY_B64" | tr -d ' \t\r\n' | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          head -c 40 ~/.ssh/deploy_key | grep -q 'BEGIN OPENSSH PRIVATE KEY' || { echo "Secret DEPLOY_SSH_KEY ist kein gültiger Base64-Schlüssel"; exit 1; }
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Deployment auf dem Server ausführen
