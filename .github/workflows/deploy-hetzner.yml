@@ -1,0 +1,22 @@
+name: Live Deploy to Hetzner
+
+on:
+  push:
+    branches:
+      - main # Falls dein Haupt-Branch 'master' heißt, ändere es hier
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Deploy via SSH
+      uses: easingthemes/ssh-deploy@main
+      with:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        ARGS: "-rlgoDzvc --delete"
+        REMOTE_HOST: ${{ secrets.SERVER_IP }}
+        REMOTE_USER: ${{ secrets.SERVER_USER }}
+        TARGET: "/var/www/html/"
