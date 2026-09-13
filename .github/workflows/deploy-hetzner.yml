@@ -1,22 +1,41 @@
 name: Live Deploy to Hetzner
 
+# Läuft automatisch, sobald die Tests ("ClipControl verification") auf main
+# erfolgreich waren. Kann zusätzlich manuell über den Actions-Tab gestartet werden.
 on:
-  push:
-    branches:
-      - main # Falls dein Haupt-Branch 'master' heißt, ändere es hier
+  workflow_run:
+    workflows: ["ClipControl verification"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hetzner
+  cancel-in-progress: false
+
+env:
+  DEPLOY_HOST: jw-clips.com
+  DEPLOY_USER: root
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: SSH-Schlüssel einrichten
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-    - name: Deploy via SSH
-      uses: easingthemes/ssh-deploy@main
-      with:
-        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        ARGS: "-rlgoDzvc --delete"
-        REMOTE_HOST: ${{ secrets.SERVER_IP }}
-        REMOTE_USER: ${{ secrets.SERVER_USER }}
-        TARGET: "/var/www/html/"
+      - name: Deployment auf dem Server ausführen
+        run: |
+          # Der Schlüssel ist auf dem Server auf scripts/deploy-server.sh eingeschränkt
+          # (command="..." in authorized_keys); der Befehl hier ist nur informativ.
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15 \
+            "$DEPLOY_USER@$DEPLOY_HOST" deploy
