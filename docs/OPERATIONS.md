@@ -32,19 +32,21 @@ Repository auf dem Server auschecken, GEMINI_API_KEY als Server-Secret setzen un
 Port 8000 ist absichtlich nur auf 127.0.0.1 des Servers veröffentlicht. Der authentifizierende HTTPS-Proxy leitet auf diesen Port weiter.
 Keine öffentliche Portbindung als Ersatz für den fehlenden Zugangsschutz verwenden.
 
-## Automatisches Deployment (GitHub Actions → Hetzner)
-Der Workflow `.github/workflows/deploy-hetzner.yml` startet, sobald `ClipControl verification` auf `main` erfolgreich war, verbindet sich per SSH mit dem Server und führt dort `scripts/deploy-server.sh` aus (git reset auf `origin/main`, `docker compose up -d --build`, Healthcheck). Über **Actions → Live Deploy to Hetzner → Run workflow** lässt er sich auch manuell starten.
+## Automatisches Deployment (Server holt sich Updates von GitHub)
+Auf dem Server läuft ein systemd-Timer (`clipcontrol-autodeploy.timer`), der alle 2 Minuten `scripts/auto-deploy-check.sh` ausführt. Das Skript vergleicht den laufenden Stand mit `origin/main`. Gibt es einen neuen Commit und ist dessen GitHub-Check `verify` erfolgreich, wird `scripts/deploy-server.sh` gestartet (git reset auf `origin/main`, `docker compose up -d --build`, Healthcheck). Fehlgeschlagene Commits werden nicht deployt. Es sind keine Zugangsdaten nötig, da Repository und Check-Status öffentlich lesbar sind.
 
 Einmalige Einrichtung auf dem Server (als root):
 ```bash
-ssh-keygen -t ed25519 -N "" -C "github-actions-deploy" -f /root/.ssh/github_deploy
-echo "command=\"/opt/automatic-clips/scripts/deploy-server.sh\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty $(cat /root/.ssh/github_deploy.pub)" >> /root/.ssh/authorized_keys
-cat /root/.ssh/github_deploy
+cd /opt/automatic-clips && git pull --ff-only && bash scripts/install-auto-deploy.sh
 ```
-Der private Schlüssel (Ausgabe des letzten Befehls, inkl. BEGIN/END-Zeilen) wird in GitHub unter **Settings → Secrets and variables → Actions → New repository secret** als `DEPLOY_SSH_KEY` hinterlegt. Danach `/root/.ssh/github_deploy` auf dem Server löschen. Durch `command="..."` kann dieser Schlüssel ausschliesslich das Deploy-Skript starten.
 
-Manuelles Update ohne GitHub Actions: `/opt/automatic-clips/scripts/deploy-server.sh`.
-Während des Neubaus ist die Anwendung kurz nicht erreichbar; das Datenvolume bleibt erhalten. Nicht deployen, während ein Clip gerendert wird.
+Nützliche Befehle auf dem Server:
+- `journalctl -u clipcontrol-autodeploy -n 50` – Protokoll der letzten Prüfungen/Deployments
+- `systemctl start clipcontrol-autodeploy.service` – sofort prüfen statt auf den Timer zu warten
+- `bash scripts/deploy-server.sh` – manuelles Update ohne Test-Prüfung
+- `systemctl disable --now clipcontrol-autodeploy.timer` – Auto-Deploy abschalten
+
+Während des Neubaus ist die Anwendung kurz nicht erreichbar; das Datenvolume bleibt erhalten. Nach einem Push dauert es Tests (ca. 15 Min) plus bis zu 2 Minuten, bis die Änderung live ist.
 
 ## Backup und Wiederherstellung
 Für diese Einzelserverversion zuerst Container mit docker compose stop stoppen. Dadurch können SQLite-Hauptdatei, WAL und Originale/Clips gemeinsam aus dem benannten Volume kopiert werden.
