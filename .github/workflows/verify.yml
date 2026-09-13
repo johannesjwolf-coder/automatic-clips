@@ -39,6 +39,10 @@ jobs:
         run: |
           python scripts/serve.py > /tmp/clipcontrol-server.log 2>&1 &
           python tests/browser_smoke.py
+      - name: Verify Codespaces image
+        run: |
+          docker build -t clipcontrol-dev:test -f .devcontainer/Dockerfile .devcontainer
+          docker run --rm --user vscode clipcontrol-dev:test bash -lc 'node --version && npm --version && ffmpeg -version && python --version'
       - name: Build Docker runtime
         run: docker build -t clipcontrol:test .
       - name: Verify container startup

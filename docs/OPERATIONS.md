@@ -45,3 +45,6 @@ Ein automatischer Backupdienst und ein geprüfter Restore sind noch einzurichten
 - Globalpause stoppt neue Verarbeitung; laufendes Rendern im Studio per Auftrag abbrechen.
 - Der Status eines vorhandenen Schlüssels bedeutet nur „konfiguriert“, nicht „bei Google erfolgreich getestet“.
 - Eine ursprüngliche Gemini-Analyse und eine spätere Originaldatei müssen dieselbe Zeitachse haben. Bei anderen Schnitten die Originaldatei selbst analysieren.
+
+## Fehlgeschlagene Codespaces-Einrichtung
+Wenn `.venv/bin/python` oder `npm` fehlen, wurde die vorgesehene Entwicklungsumgebung nicht vollständig erstellt. Ein Codespace kann in einer Wiederherstellungsumgebung (z. B. Alpine) geöffnet sein. In der Befehlspalette **Codespaces: Rebuild Container** ausführen und das Erstellungsprotokoll prüfen. Die neue Containerdefinition enthält Node/npm direkt, ohne externes Node-Feature. `bash scripts/start-codespace.sh` prüft fehlenden Build und Python-Umgebung vor dem Start. Die vorgesehene Basis ist Debian mit Python 3.12, Node 22 und FFmpeg.
