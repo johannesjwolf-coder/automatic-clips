@@ -151,5 +151,7 @@ def test_codespaces_origin(client, monkeypatch):
     assert client.post("/api/videos", headers=headers, json={"title": "Forwarded origin"}).status_code == 200
     for origin in ["https://other-workspace-8000.app.github.dev", "https://example-workspace-8000.app.github.dev.evil.test", "http://example-workspace-8000.app.github.dev"]:
         assert client.post("/api/videos", headers={**headers, "Origin": origin}, json={"title": "Blocked"}).status_code == 403
+    assert client.post("/api/videos", headers={**headers, "Host": "example-workspace-8000.app.github.dev", "Origin": "https://localhost:8000"}, json={"title": "Rewritten proxy origin"}).status_code == 200
     monkeypatch.delenv("CODESPACE_NAME")
+    assert client.post("/api/videos", headers={**headers, "Host": "example-workspace-8000.app.github.dev", "Origin": "https://localhost:8000"}, json={"title": "No proxy"}).status_code == 403
     assert client.post("/api/videos", headers=headers, json={"title": "Not Codespaces"}).status_code == 403

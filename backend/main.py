@@ -34,8 +34,9 @@ async def safety(request: Request, call_next):
     forwarding_domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN")
     if codespace and forwarding_domain:
         allowed_origins.add(f"https://{codespace}-8000.{forwarding_domain}")
+        # GitHub forwarding rewrites Origin to this HTTPS loopback target.
+        allowed_origins.add("https://localhost:8000")
     if origin and origin not in allowed_origins:
-        print("ClipControl rejected origin:", repr(origin), "allowed:", sorted(allowed_origins), flush=True)
         return JSONResponse({"detail": "Fremder Ursprung nicht erlaubt."}, status_code=403)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
