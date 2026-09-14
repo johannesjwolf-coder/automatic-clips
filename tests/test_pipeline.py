@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from backend import db, worker, media, gemini
 from backend.main import app
-from backend.models import Analysis, youtube_url, to_utc
+from backend.models import Analysis, Narration, youtube_url, to_utc
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -275,9 +275,11 @@ def test_mkv_original_is_remuxed_for_gemini(client, monkeypatch):
     assert not seen["path"].exists()
 
 def test_gemini_schema_and_error_detail():
-    # Das SDK muss das Modell ohne Pydantic-Extras wie exclusiveMinimum übersetzen können.
-    from google.genai import _transformers
-    assert _transformers.t_schema(gemini.genai.Client(api_key="test-never-sent")._api_client, Analysis).properties["highlights"].items.properties["end"].minimum == 0
+    # Natives Schema: Verweise aufgelöst, Grenzen übernommen, additionalProperties (von extra="forbid") entfernt.
+    schema=gemini._schema(Analysis)
+    assert schema.properties["highlights"].items.properties["end"].minimum == 0
+    assert "additional_properties" not in json.dumps(schema.model_dump(exclude_unset=True))
+    assert "additional_properties" not in json.dumps(gemini._schema(Narration).model_dump(exclude_unset=True))
     class Rejected(Exception):
         code=400
         message="Invalid JSON payload: unknown field"
