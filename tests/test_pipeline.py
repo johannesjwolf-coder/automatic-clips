@@ -276,7 +276,11 @@ def test_mkv_original_is_remuxed_for_gemini(client, monkeypatch):
 
 def test_gemini_schema_and_error_detail():
     schema=json.dumps(gemini._schema(Analysis))
-    assert "maxLength" not in schema and "minLength" not in schema and '"maxItems"' in schema
+    for keyword in ("maxLength", "minLength", "exclusiveMinimum", "$ref", "$defs"):
+        assert keyword not in schema, keyword
+    assert '"maxItems"' in schema and '"minimum"' in schema
+    highlight=gemini._schema(Analysis)["properties"]["highlights"]["items"]["properties"]
+    assert "title" in highlight and highlight["words"]["items"]["properties"]["text"]["type"] == "string"
     class Rejected(Exception):
         code=400
         message="Invalid JSON payload: unknown field"

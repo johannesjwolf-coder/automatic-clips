@@ -71,23 +71,31 @@ def _count(tokens, response):
     tokens["input_tokens"] = (tokens["input_tokens"] or 0) + (getattr(usage, "prompt_token_count", None) or 0)
     tokens["output_tokens"] = (tokens["output_tokens"] or 0) + (getattr(usage, "candidates_token_count", None) or 0)
 
+UNSUPPORTED = ("minLength", "maxLength", "exclusiveMinimum", "exclusiveMaximum")
+
 def _schema(model):
-    """JSON-Schema für Gemini: Pydantic-Validierung bleibt serverseitig, Schlüsselwörter,
-    die Gemini nicht kennt (String-Längen), werden entfernt."""
-    def strip(node):
+    """JSON-Schema für Gemini: Pydantic-Validierung bleibt serverseitig. Schlüsselwörter,
+    die Gemini ablehnt (String-Längen, exklusive Grenzen), werden entfernt und
+    $ref-Verweise auf $defs direkt eingesetzt."""
+    raw = model.model_json_schema()
+    defs = raw.get("$defs", {})
+    def clean(node):
         if isinstance(node, dict):
-            return {k: strip(v) for k, v in node.items() if k not in ("minLength", "maxLength")}
+            if "$ref" in node:
+                return clean(defs[node["$ref"].rsplit("/", 1)[1]])
+            return {k: clean(v) for k, v in node.items() if k not in UNSUPPORTED and k != "$defs"}
         if isinstance(node, list):
-            return [strip(v) for v in node]
+            return [clean(v) for v in node]
         return node
-    return strip(model.model_json_schema())
+    return clean(raw)
 
 def _translate(e):
     code = getattr(e, "code", None)
     messages = {400: "Gemini hat die Anfrage abgelehnt (Video, Modell oder Ausgabeformat).",
         401: "Gemini-Schlüssel ungültig.", 403: "Gemini-Zugriff verweigert. API-Schlüssel, Region und Projekt prüfen.",
         404: "Gemini-Modell oder Video nicht verfügbar. GEMINI_MODEL/GEMINI_TTS_MODEL und Videozugriff prüfen.",
-        429: "Gemini-Kontingent erreicht. Später erneut versuchen oder Kontingent im Google-Projekt prüfen."}
+        429: "Gemini-Kontingent erreicht. Später erneut versuchen oder Kontingent im Google-Projekt prüfen.",
+        503: "Gemini ist gerade überlastet. In ein paar Minuten erneut versuchen."}
     text = messages.get(code, "Gemini-Anfrage fehlgeschlagen oder unterbrochen. Modell, Verbindung und Google-Kontingent prüfen. Keine automatische kostenpflichtige Wiederholung.")
     # Die Google-Begründung hilft bei der Diagnose; sie enthält weder Schlüssel noch Dateipfade.
     detail = " ".join(str(getattr(e, "message", None) or e).split())[:600]
