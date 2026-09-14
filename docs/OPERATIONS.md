@@ -29,6 +29,7 @@ Das vorhandene Dockerfile/Compose startet den getesteten ersten Ablauf, nicht au
 
 ## Serverstart, wenn ein Server bereitsteht
 Repository auf dem Server auschecken, GEMINI_API_KEY als Server-Secret setzen und docker compose up --build -d starten.
+Optional GEMINI_MODEL und GEMINI_TTS_MODEL (KI-Sprecher) in derselben .env setzen; .env wird von Git ignoriert und bleibt bei Deployments erhalten.
 Port 8000 ist absichtlich nur auf 127.0.0.1 des Servers veröffentlicht. Der authentifizierende HTTPS-Proxy leitet auf diesen Port weiter.
 Keine öffentliche Portbindung als Ersatz für den fehlenden Zugangsschutz verwenden.
 

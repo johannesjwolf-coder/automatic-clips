@@ -24,6 +24,7 @@ Codespaces verbraucht ggf. GitHub-Rechenzeit/Storage. Es stoppt bei Inaktivität
 - Originaldateien separat hochladen und mit FFprobe prüfen. Ein Link ist **kein Downloadmechanismus**.
 - Manuelle Auswahl und Änderung von Beginn/Ende; zusammenhängende Clips von 1–180 Sekunden.
 - FFmpeg H.264/AAC, 1080×1920, 30 fps, vollständiges Bild mit Padding oder expliziter mittiger Zuschnitt, Lautheitsanpassung.
+- **KI-Sprecher für stumme Videos:** Gemini sieht den gewählten Ausschnitt, schreibt einen deutschen Sprechertext mit Zeitpunkten (oder übernimmt deinen eigenen Text), Gemini-TTS spricht ihn mit einer wählbaren Stimme, FFmpeg legt die Tonspur unter das Video (vorhandener Originalton wird leise darunter gemischt). Untertitel können aus dem Sprechertext eingebrannt werden. Zählt als Gemini-Auftrag im Tageslimit; Modell über `GEMINI_TTS_MODEL` wählbar.
 - Optionale eingebrannte Untertitel aus Gemini-Wortzeitcodes. Keine garantierte Forced-Alignment-Genauigkeit, kein automatisches Personentracking.
 - Unveränderliche Exportversionen mit gespeicherten Schnittplänen, Wiedergabe mit Range-Requests und MP4-Download.
 - SQLite-Migrationen, persistente Aufträge, genau ein Worker, Abbruch, globale Verarbeitungspause.

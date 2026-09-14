@@ -78,7 +78,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             lines.append(f"Dialogue: 0,{ass_time(a)},{ass_time(b)},Default,,0,0,0,,{text}")
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
-def render(video, clip, job_id):
+def narration_words(lines, offset):
+    """Verteilt die Wörter jedes gesprochenen Satzes gleichmässig über seine gemessene Dauer
+    und liefert Wortzeitcodes auf der Original-Zeitachse für die Untertitel."""
+    words = []
+    for line in lines:
+        parts = line["text"].split()
+        if not parts or line["end"] <= line["start"]:
+            continue
+        step = (line["end"] - line["start"]) / len(parts)
+        for i, text in enumerate(parts):
+            words.append({"start": round(offset + line["start"] + i*step, 3),
+                "end": round(offset + line["start"] + (i+1)*step, 3), "text": text[:80]})
+    return words
+
+def render(video, clip, job_id, voice=None):
     plan = clip["plan"]
     src = db.DATA / video["original"]
     meta = probe(src)
@@ -98,17 +112,27 @@ def render(video, clip, job_id):
         filt += ",ass=" + sub.as_posix().replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     output = db.DATA / "clips" / (clip["id"] + ".mp4")
     temp = work / "output.mp4"
+    loudness = "loudnorm=I=-16:TP=-1.5:LRA=11"
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-        "-protocol_whitelist", "file,pipe", "-ss", str(plan["start"]), "-i", str(src),
-        "-t", str(plan["end"]-plan["start"]), "-map", "0:v:0", "-map", "0:a:0?",
+        "-protocol_whitelist", "file,pipe", "-ss", str(plan["start"]), "-i", str(src)]
+    if voice:
+        args += ["-i", str(voice)]
+    args += ["-t", str(plan["end"]-plan["start"]), "-map", "0:v:0",
         "-vf", filt, "-c:v", "libx264", "-threads", "2", "-preset", "veryfast", "-crf", "22",
-        "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k",
-        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-movflags", "+faststart", str(temp)]
+        "-pix_fmt", "yuv420p", "-r", "30"]
+    if voice and meta["audio"]:
+        # KI-Sprecher im Vordergrund, Originalton leise darunter.
+        args += ["-filter_complex", "[0:a:0]volume=0.2[bg];[bg][1:a:0]amix=inputs=2:duration=longest:normalize=0," + loudness + "[a]", "-map", "[a]"]
+    elif voice:
+        args += ["-map", "1:a:0", "-af", loudness]
+    else:
+        args += ["-map", "0:a:0?", "-af", loudness]
+    args += ["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(temp)]
     run(args, job_id)
     check = probe(temp)
     if check["width"] != 1080 or check["height"] != 1920 or abs(check["duration"] - (plan["end"]-plan["start"])) > 0.3:
         raise ValueError("Der Export hat die technische Prüfung nicht bestanden.")
-    if meta["audio"] and not check["audio"]:
+    if (meta["audio"] or voice) and not check["audio"]:
         raise ValueError("Im Export fehlt die Audiospur.")
     run([FFMPEG, "-v", "error", "-i", str(temp), "-f", "null", "-"], job_id)
     temp.replace(output)

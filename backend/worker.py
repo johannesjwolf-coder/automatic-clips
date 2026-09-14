@@ -5,7 +5,8 @@ from . import db, media, gemini
 def recover():
     with db.connection() as c:
         # Never blindly repeat a possibly charged Gemini request after a crash.
-        c.execute("UPDATE jobs SET status='failed', stage='Unterbrochen', error='Worker wurde während der Gemini-Anfrage neu gestartet. Ergebnis und Google-Nutzung prüfen; bei Bedarf manuell erneut analysieren.',updated=? WHERE status='running' AND kind='analysis'", (db.now(),))
+        c.execute("UPDATE jobs SET status='failed', stage='Unterbrochen', error='Worker wurde während der Gemini-Anfrage neu gestartet. Ergebnis und Google-Nutzung prüfen; bei Bedarf manuell erneut analysieren.',updated=? WHERE status='running' AND (kind='analysis' OR (kind='render' AND payload LIKE '%\"voiceover\": true%'))", (db.now(),))
+        c.execute("UPDATE clips SET status='failed' WHERE status='queued' AND job_id IN (SELECT id FROM jobs WHERE status='failed' AND stage='Unterbrochen')")
         c.execute("UPDATE jobs SET status='queued',stage='Wiederaufnahme nach Neustart',updated=? WHERE status='running' AND kind IN ('render','demo')", (db.now(),))
 
 def claim():
@@ -25,6 +26,8 @@ def process(job):
     try:
         if job["kind"] == "analysis":
             stage = "Gemini analysiert Bild, Sprache und Ton"
+        elif job["kind"] == "render" and job["payload"].get("voiceover"):
+            stage = "Gemini schreibt und spricht den Text, FFmpeg rendert"
         elif job["kind"] == "render":
             stage = "FFmpeg rendert und prüft den Export"
         else:
@@ -40,11 +43,23 @@ def process(job):
                 c.execute("UPDATE videos SET analysis=? WHERE id=?", (json.dumps(result), video["id"]))
         elif job["kind"] == "render":
             clip = db.decode(db.one("SELECT * FROM clips WHERE job_id=?", (ident,)))
-            file, meta = media.render(video, clip, ident)
+            voice = None
+            if clip["plan"].get("voiceover"):
+                work = db.DATA / "work" / clip["id"]
+                work.mkdir(parents=True, exist_ok=True)
+                voice = work / "voice.wav"
+                lines, usage = gemini.narrate(video, clip["plan"], ident, voice)
+                with db.connection() as c:
+                    c.execute("UPDATE usage SET input_tokens=?,output_tokens=? WHERE job_id=?", (usage["input_tokens"], usage["output_tokens"], ident))
+                clip["plan"]["narration"] = lines
+                clip["plan"]["tts_model"] = gemini.TTS_MODEL
+                if clip["plan"]["subtitles"]:
+                    clip["plan"]["words"] = media.narration_words(lines, clip["plan"]["start"])
+            file, meta = media.render(video, clip, ident, voice)
             with db.connection() as c:
                 if c.execute("SELECT status FROM jobs WHERE id=?", (ident,)).fetchone()[0] == "cancelled":
                     return
-                c.execute("UPDATE clips SET file=?,metadata=?,status='ready' WHERE id=?", (file, json.dumps(meta), clip["id"]))
+                c.execute("UPDATE clips SET file=?,metadata=?,plan=?,status='ready' WHERE id=?", (file, json.dumps(meta), json.dumps(clip["plan"]), clip["id"]))
         else:
             path = db.DATA / "originals" / (video["id"] + ".mp4")
             media.demo(path)

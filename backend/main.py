@@ -77,7 +77,7 @@ def state():
         "accounts": db.rows("SELECT * FROM accounts"),
         "schedules": db.rows("SELECT s.*,a.name AS account_name,a.platform,c.title AS clip_title FROM schedules s JOIN accounts a ON a.id=s.account_id JOIN clips c ON c.id=s.clip_id ORDER BY scheduled_at"),
         "events": db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 60"),
-        "usage": usage, "system": {"gemini": gemini.available(), "model": gemini.MODEL,
+        "usage": usage, "system": {"gemini": gemini.available(), "model": gemini.MODEL, "tts_model": gemini.TTS_MODEL,
             "ffmpeg": bool(shutil.which(media.FFMPEG)), "ffprobe": bool(shutil.which(media.FFPROBE)),
             "worker": db.one("SELECT value FROM runtime WHERE key='worker_heartbeat'"),
             "publishing": False, "access": "Codespaces: Port privat lassen. Noch keine öffentliche Anmeldung.",
@@ -156,7 +156,7 @@ def analyze(ident: str, body: AnalyzeRequest):
     if not body.consent:
         raise HTTPException(422, "Bitte bestätigen, dass Gemini den gewählten Inhalt analysieren darf.")
     if not gemini.available():
-        raise HTTPException(503, "GEMINI_API_KEY fehlt. Als Codespaces-Secret hinterlegen und Codespace neu starten.")
+        raise HTTPException(503, "GEMINI_API_KEY fehlt. Auf dem Server in .env eintragen und die Anwendung neu starten.")
     if body.source == "youtube" and not video["youtube_url"]:
         raise HTTPException(422, "YouTube-Link fehlt.")
     if body.source == "original" and not video["original"]:
@@ -196,20 +196,33 @@ def render(ident: str, body: RenderRequest):
         plan["selection"] = candidate["reason"]
         plan["model"] = video["analysis"].get("model")
         plan["analysis_source"] = video["analysis"].get("source")
-    if body.subtitles and not plan["words"]:
+    if body.voiceover:
+        # Der Sprechertext ersetzt geschätzte Wortzeitcodes; der Ausschnitt geht zur Vertonung an Google.
+        plan["words"] = []
+        if not body.consent:
+            raise HTTPException(422, "Bitte bestätigen, dass Gemini den Ausschnitt für den KI-Sprecher verarbeiten darf.")
+        if not gemini.available():
+            raise HTTPException(503, "GEMINI_API_KEY fehlt. Auf dem Server in .env eintragen und die Anwendung neu starten.")
+    elif body.subtitles and not plan["words"]:
         raise HTTPException(422, "Keine Wortzeitstempel vorhanden. Untertitel ausschalten oder zuerst analysieren.")
     with db.connection() as c:
         c.execute("BEGIN IMMEDIATE")
-        if c.execute("SELECT paused FROM settings WHERE id=1").fetchone()[0]:
+        settings = c.execute("SELECT * FROM settings WHERE id=1").fetchone()
+        if settings["paused"]:
             raise HTTPException(409, "Verarbeitung ist pausiert.")
         existing = c.execute("SELECT c.id,c.job_id FROM clips c JOIN jobs j ON j.id=c.job_id WHERE c.video_id=? AND c.plan=? AND j.status IN ('queued','running')", (ident, json.dumps(plan))).fetchone()
         if existing:
             return {"clip_id": existing["id"], "job_id": existing["job_id"]}
-        job = queue(c, ident, "render")
+        day = db.now()[:10]
+        if body.voiceover and c.execute("SELECT COUNT(*) FROM usage WHERE day=?", (day,)).fetchone()[0] >= settings["daily_limit"]:
+            raise HTTPException(409, "Tageslimit erreicht oder noch nicht eingerichtet. In Einstellungen ein Auftragslimit festlegen.")
+        job = queue(c, ident, "render", {"voiceover": body.voiceover})
+        if body.voiceover:
+            c.execute("INSERT INTO usage(job_id,day) VALUES(?,?)", (job, day))
         clip = db.uid()
         c.execute("INSERT INTO clips(id,video_id,job_id,title,plan,status,created) VALUES(?,?,?,?,?,'queued',?)",
             (clip, ident, job, body.title, json.dumps(plan), db.now()))
-        db.event("Clip zum Rendern vorgemerkt", body.title, c)
+        db.event("Clip mit KI-Sprecher vorgemerkt" if body.voiceover else "Clip zum Rendern vorgemerkt", body.title, c)
     return {"clip_id": clip, "job_id": job}
 
 @app.post("/api/jobs/{ident}/cancel")

@@ -74,6 +74,24 @@ class Analysis(StrictModel):
             raise ValueError("Gemini hat weder Highlights noch einen Grund geliefert.")
         return self
 
+class NarrationLine(StrictModel):
+    start: float = Field(ge=0)
+    text: str = Field(min_length=1, max_length=400)
+
+class Narration(StrictModel):
+    lines: list[NarrationLine] = Field(max_length=40)
+    def checked(self, duration):
+        if not self.lines:
+            raise ValueError("Gemini hat keinen Sprechtext geliefert.")
+        previous = 0.0
+        for line in self.lines:
+            if line.start < previous:
+                raise ValueError("Gemini hat unplausible Sprechzeiten geliefert.")
+            if line.start > duration:
+                raise ValueError("Gemini hat Sprechzeiten ausserhalb des Clips geliefert.")
+            previous = line.start
+        return self
+
 class VideoCreate(StrictModel):
     title: str = Field(default="Neues Video", min_length=1, max_length=180)
     youtube_url: str = Field(default="", max_length=500)
@@ -89,10 +107,19 @@ class RenderRequest(StrictModel):
     subtitles: bool = True
     font_size: int = Field(default=58, ge=32, le=80)
     candidate: int | None = Field(default=None, ge=0, le=4)
+    # KI-Sprecher: Gemini schreibt den Text (oder spricht den eigenen), Gemini-TTS vertont ihn.
+    voiceover: bool = False
+    voice: Literal["Kore", "Puck", "Charon", "Aoede", "Fenrir", "Leda", "Zephyr", "Orus"] = "Kore"
+    voice_style: str = Field(default="", max_length=300)
+    voice_text: str = Field(default="", max_length=1500)
+    consent: bool = False
     @model_validator(mode="after")
     def limits(self):
-        if not 1 <= self.end-self.start <= 180:
+        duration = self.end-self.start
+        if not 1 <= duration <= 180:
             raise ValueError("Ein Clip muss 1 bis 180 Sekunden lang sein.")
+        if self.voiceover and len(self.voice_text.split()) > duration * 3:
+            raise ValueError(f"Der eigene Sprechtext ist zu lang für {duration:.0f} Sekunden (höchstens etwa {int(duration*3)} Wörter).")
         return self
 class Settings(StrictModel):
     paused: bool

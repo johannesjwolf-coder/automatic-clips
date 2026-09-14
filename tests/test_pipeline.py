@@ -102,10 +102,15 @@ def test_restart_recovery(client):
         from backend.main import queue
         a=queue(c,ident,"analysis")
         r=queue(c,ident,"render")
+        v=queue(c,ident,"render",{"voiceover":True})
+        c.execute("INSERT INTO clips(id,video_id,job_id,title,plan,status,created) VALUES('clipv',?,?,'v','{}','queued','now')",(ident,v))
         c.execute("UPDATE jobs SET status='running'")
     worker.recover()
     assert db.one("SELECT status FROM jobs WHERE id=?",(a,))["status"] == "failed"
     assert db.one("SELECT status FROM jobs WHERE id=?",(r,))["status"] == "queued"
+    # A voiceover render already sent (possibly charged) Gemini requests: never repeat it blindly.
+    assert db.one("SELECT status FROM jobs WHERE id=?",(v,))["status"] == "failed"
+    assert db.one("SELECT status FROM clips WHERE id='clipv'")["status"] == "failed"
     # Reopening migrations does not reset data/settings.
     client.put("/api/settings",json={"paused":True,"daily_limit":7})
     db.init()
@@ -155,3 +160,89 @@ def test_codespaces_origin(client, monkeypatch):
     monkeypatch.delenv("CODESPACE_NAME")
     assert client.post("/api/videos", headers={**headers, "Host": "example-workspace-8000.app.github.dev", "Origin": "https://localhost:8000"}, json={"title": "No proxy"}).status_code == 403
     assert client.post("/api/videos", headers=headers, json={"title": "Not Codespaces"}).status_code == 403
+
+def test_voiceover_on_silent_video(client, monkeypatch):
+    import math
+    import struct
+    ident=create(client)
+    path=db.DATA/"silent.mp4"
+    media.run([media.FFMPEG,"-hide_banner","-loglevel","error","-y","-f","lavfi","-i","testsrc2=size=640x360:rate=30:duration=8","-c:v","libx264","-pix_fmt","yuv420p","-an",str(path)],timeout=60)
+    with path.open("rb") as stream:
+        assert client.post(f"/api/videos/{ident}/original",files={"file":("silent.mp4",stream,"video/mp4")}).status_code == 200
+    assert client.get("/api/state").json()["videos"][0]["metadata"]["audio"] is False
+    request={"title":"Mit Sprecher","start":1,"end":5,"subtitles":True,"voiceover":True,"voice":"Puck","consent":True}
+    assert client.post(f"/api/videos/{ident}/render",json=request).status_code == 503
+    monkeypatch.setenv("GEMINI_API_KEY","test-never-sent")
+    assert client.post(f"/api/videos/{ident}/render",json={**request,"consent":False}).status_code == 422
+    assert client.post(f"/api/videos/{ident}/render",json={**request,"voice_text":"wort "*40}).status_code == 422
+    assert client.post(f"/api/videos/{ident}/render",json=request).status_code == 409
+    client.put("/api/settings",json={"paused":False,"daily_limit":1})
+    # Isolierte Gemini-Antworten: ein Skript, danach je Satz ein 0,8-Sekunden-Ton als PCM.
+    tone=b"".join(struct.pack("<h",int(8000*math.sin(2*math.pi*440*i/24000))) for i in range(int(0.8*24000)))
+    def speech():
+        r=MagicMock(usage_metadata=MagicMock(prompt_token_count=10,candidates_token_count=5))
+        r.candidates=[MagicMock()]
+        r.candidates[0].content.parts=[MagicMock(inline_data=MagicMock(data=tone))]
+        return r
+    script=MagicMock(text=json.dumps({"lines":[{"start":0.2,"text":"Hier siehst du das Testbild."},{"start":2.5,"text":"Die Farben wechseln jede Sekunde."}]}),usage_metadata=MagicMock(prompt_token_count=500,candidates_token_count=60))
+    fake=MagicMock()
+    fake.models.generate_content.side_effect=[script,speech(),speech()]
+    uploaded=MagicMock(uri="files/test",mime_type="video/mp4",name="files/test")
+    uploaded.state.name="ACTIVE"
+    fake.files.upload.return_value=uploaded
+    monkeypatch.setattr(gemini.genai,"Client",lambda **kwargs:fake)
+    r=client.post(f"/api/videos/{ident}/render",json=request)
+    assert r.status_code == 200,r.text
+    assert client.post(f"/api/videos/{ident}/render",json=request).json()["clip_id"] == r.json()["clip_id"]
+    worker.process(worker.claim())
+    state=client.get("/api/state").json()
+    clip=state["clips"][0]
+    assert clip["status"] == "ready",state["jobs"]
+    assert [l["start"] for l in clip["plan"]["narration"]] == [0.2,2.5]
+    assert clip["plan"]["words"][0]["start"] == 1.2 and clip["plan"]["tts_model"] == gemini.TTS_MODEL
+    check=media.probe(db.DATA/"clips"/(clip["id"]+".mp4"))
+    assert check["audio"] and abs(check["duration"]-4) < 0.3
+    assert (db.DATA/"work"/clip["id"]/"captions.ass").exists()
+    assert state["usage"]["requests"] == 1 and state["usage"]["input_tokens"] == 520
+    calls=fake.models.generate_content.call_args_list
+    assert calls[0].kwargs["contents"].parts[0].video_metadata.start_offset == "1.000s"
+    assert calls[0].kwargs["config"].response_mime_type == "application/json"
+    assert calls[1].kwargs["model"] == gemini.TTS_MODEL and "AUDIO" in calls[1].kwargs["config"].response_modalities
+    assert calls[1].kwargs["config"].speech_config.voice_config.prebuilt_voice_config.voice_name == "Puck"
+    fake.files.delete.assert_called_once()
+    # Eigener Text wird ohne Videoanalyse direkt gesprochen und bei Überlänge moderat beschleunigt.
+    long=b"".join(struct.pack("<h",0) for _ in range(int(4.6*24000)))
+    spoken=speech()
+    spoken.candidates[0].content.parts[0].inline_data.data=long
+    fake.models.generate_content.side_effect=[spoken]
+    client.put("/api/settings",json={"paused":False,"daily_limit":2})
+    r=client.post(f"/api/videos/{ident}/render",json={**request,"subtitles":False,"voice_text":"Ein eigener Satz."})
+    assert r.status_code == 200,r.text
+    worker.process(worker.claim())
+    state=client.get("/api/state").json()
+    clip=next(c for c in state["clips"] if c["id"] == r.json()["clip_id"])
+    assert clip["status"] == "ready",state["jobs"]
+    assert clip["plan"]["narration"][0]["end"] == 4
+    assert fake.files.upload.call_count == 1
+
+def test_voiceover_mixes_existing_audio(client, monkeypatch):
+    ident,_=source(client)
+    monkeypatch.setenv("GEMINI_API_KEY","test-never-sent")
+    client.put("/api/settings",json={"paused":False,"daily_limit":1})
+    spoken=MagicMock(usage_metadata=MagicMock(prompt_token_count=8,candidates_token_count=4))
+    spoken.candidates=[MagicMock()]
+    spoken.candidates[0].content.parts=[MagicMock(inline_data=MagicMock(data=bytes(2*24000*2)))]
+    fake=MagicMock()
+    fake.models.generate_content.return_value=spoken
+    monkeypatch.setattr(gemini.genai,"Client",lambda **kwargs:fake)
+    r=client.post(f"/api/videos/{ident}/render",json={"title":"Sprecher über Originalton","start":2,"end":6,"subtitles":True,"voiceover":True,"voice":"Kore","voice_text":"Zwei Sekunden Sprache.","consent":True})
+    assert r.status_code == 200,r.text
+    worker.process(worker.claim())
+    state=client.get("/api/state").json()
+    clip=state["clips"][0]
+    assert clip["status"] == "ready",state["jobs"]
+    check=media.probe(db.DATA/"clips"/(clip["id"]+".mp4"))
+    assert check["audio"] and abs(check["duration"]-4) < 0.3
+    assert clip["plan"]["narration"] == [{"start":0,"end":2,"text":"Zwei Sekunden Sprache."}]
+    assert len(clip["plan"]["words"]) == 3 and clip["plan"]["words"][0]["start"] == 2
+    fake.files.upload.assert_not_called()
