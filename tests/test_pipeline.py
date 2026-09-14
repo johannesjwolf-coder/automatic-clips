@@ -246,3 +246,30 @@ def test_voiceover_mixes_existing_audio(client, monkeypatch):
     assert clip["plan"]["narration"] == [{"start":0,"end":2,"text":"Zwei Sekunden Sprache."}]
     assert len(clip["plan"]["words"]) == 3 and clip["plan"]["words"][0]["start"] == 2
     fake.files.upload.assert_not_called()
+
+def test_mkv_original_is_remuxed_for_gemini(client, monkeypatch):
+    ident=create(client)
+    source_path=db.DATA/"input.mp4"
+    media.demo(source_path)
+    mkv=db.DATA/"input.mkv"
+    media.run([media.FFMPEG,"-hide_banner","-loglevel","error","-y","-i",str(source_path),"-c","copy",str(mkv)],timeout=60)
+    with mkv.open("rb") as stream:
+        assert client.post(f"/api/videos/{ident}/original",files={"file":("aufnahme.mkv",stream,"video/x-matroska")}).status_code == 200
+    monkeypatch.setenv("GEMINI_API_KEY","test-never-sent")
+    client.put("/api/settings",json={"paused":False,"daily_limit":1})
+    result={"summary":"ok","language":"de","skip_reason":"Nur Testbild.","highlights":[]}
+    fake=MagicMock()
+    fake.models.generate_content.return_value=MagicMock(text=json.dumps(result),usage_metadata=MagicMock(prompt_token_count=1,candidates_token_count=1))
+    uploaded=MagicMock(uri="files/mkv",mime_type="video/mp4",name="files/mkv")
+    uploaded.state.name="ACTIVE"
+    seen={}
+    def upload(file,config=None):
+        seen["path"]=Path(file); seen["mime"]=config.mime_type; seen["probe"]=media.probe(file)
+        return uploaded
+    fake.files.upload.side_effect=upload
+    monkeypatch.setattr(gemini.genai,"Client",lambda **kwargs:fake)
+    assert client.post(f"/api/videos/{ident}/analyze",json={"source":"original","consent":True,"max_seconds":30}).status_code == 200
+    worker.process(worker.claim())
+    assert db.one("SELECT status FROM jobs")["status"] == "done"
+    assert seen["mime"] == "video/mp4" and seen["path"].suffix == ".mp4" and seen["probe"]["audio"]
+    assert not seen["path"].exists()

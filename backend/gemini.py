@@ -23,10 +23,29 @@ def _client():
 def _cancelled(job_id):
     return db.one("SELECT status FROM jobs WHERE id=?", (job_id,))["status"] == "cancelled"
 
+MIME = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
+
 def _upload(client, video, job_id):
     if not video["original"]:
         raise ValueError("Originaldatei benötigt.")
-    uploaded = client.files.upload(file=str(db.DATA / video["original"]))
+    path = db.DATA / video["original"]
+    mime, temp = MIME.get(path.suffix.lower()), None
+    if not mime:
+        # z.B. MKV aus OBS: Gemini kennt den Container nicht. Ohne Neukodierung nach MP4 umpacken;
+        # falls die Tonspur nicht in MP4 passt (z.B. Opus), nur den Ton neu kodieren.
+        temp = db.DATA / "work" / ("gemini-" + db.uid() + ".mp4")
+        temp.parent.mkdir(parents=True, exist_ok=True)
+        base = [media.FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(path), "-map", "0:v:0", "-map", "0:a:0?"]
+        try:
+            media.run(base + ["-c", "copy", "-movflags", "+faststart", str(temp)], job_id, timeout=900)
+        except RuntimeError:
+            media.run(base + ["-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(temp)], job_id, timeout=900)
+        path, mime = temp, "video/mp4"
+    try:
+        uploaded = client.files.upload(file=str(path), config=types.UploadFileConfig(mime_type=mime))
+    finally:
+        if temp:
+            temp.unlink(missing_ok=True)
     started = time.monotonic()
     while uploaded.state and uploaded.state.name == "PROCESSING":
         if time.monotonic()-started > 900:
