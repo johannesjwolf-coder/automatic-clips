@@ -71,13 +71,27 @@ def _count(tokens, response):
     tokens["input_tokens"] = (tokens["input_tokens"] or 0) + (getattr(usage, "prompt_token_count", None) or 0)
     tokens["output_tokens"] = (tokens["output_tokens"] or 0) + (getattr(usage, "candidates_token_count", None) or 0)
 
+def _schema(model):
+    """JSON-Schema für Gemini: Pydantic-Validierung bleibt serverseitig, Schlüsselwörter,
+    die Gemini nicht kennt (String-Längen), werden entfernt."""
+    def strip(node):
+        if isinstance(node, dict):
+            return {k: strip(v) for k, v in node.items() if k not in ("minLength", "maxLength")}
+        if isinstance(node, list):
+            return [strip(v) for v in node]
+        return node
+    return strip(model.model_json_schema())
+
 def _translate(e):
     code = getattr(e, "code", None)
-    messages = {400: "Gemini hat das Video oder das Ausgabeformat abgelehnt. Öffentlichen Link und Modell prüfen; alternativ die Originaldatei analysieren.",
+    messages = {400: "Gemini hat die Anfrage abgelehnt (Video, Modell oder Ausgabeformat).",
         401: "Gemini-Schlüssel ungültig.", 403: "Gemini-Zugriff verweigert. API-Schlüssel, Region und Projekt prüfen.",
         404: "Gemini-Modell oder Video nicht verfügbar. GEMINI_MODEL/GEMINI_TTS_MODEL und Videozugriff prüfen.",
         429: "Gemini-Kontingent erreicht. Später erneut versuchen oder Kontingent im Google-Projekt prüfen."}
-    return RuntimeError(messages.get(code, "Gemini-Anfrage fehlgeschlagen oder unterbrochen. Modell, Verbindung und Google-Kontingent prüfen. Keine automatische kostenpflichtige Wiederholung."))
+    text = messages.get(code, "Gemini-Anfrage fehlgeschlagen oder unterbrochen. Modell, Verbindung und Google-Kontingent prüfen. Keine automatische kostenpflichtige Wiederholung.")
+    # Die Google-Begründung hilft bei der Diagnose; sie enthält weder Schlüssel noch Dateipfade.
+    detail = " ".join(str(getattr(e, "message", None) or e).split())[:600]
+    return RuntimeError(f"{text} Google meldet: {detail}" if detail else text)
 
 def analyze(video, payload, job_id):
     client = _client()
@@ -108,7 +122,7 @@ Falls kein guter Ausschnitt vorhanden ist, highlights leer und skip_reason verst
             contents=types.Content(parts=[part, types.Part(text=prompt)]),
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_json_schema=Analysis.model_json_schema(),
+                response_json_schema=_schema(Analysis),
                 temperature=0.2, max_output_tokens=16000))
         result = Analysis.model_validate_json(response.text or "")
         duration = video.get("metadata", {}).get("duration") if video.get("metadata") else None
@@ -170,7 +184,7 @@ Sekunde {max(0.0, duration - 3):.0f} beginnen. Nur Sprechtext, keine Regieanweis
                 contents=types.Content(parts=[part, types.Part(text=prompt)]),
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_json_schema=Narration.model_json_schema(),
+                    response_json_schema=_schema(Narration),
                     temperature=0.4, max_output_tokens=4000))
             _count(tokens, response)
             lines = [l.model_dump() for l in Narration.model_validate_json(response.text or "").checked(duration).lines]

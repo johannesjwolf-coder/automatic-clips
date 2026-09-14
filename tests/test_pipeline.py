@@ -273,3 +273,11 @@ def test_mkv_original_is_remuxed_for_gemini(client, monkeypatch):
     assert db.one("SELECT status FROM jobs")["status"] == "done"
     assert seen["mime"] == "video/mp4" and seen["path"].suffix == ".mp4" and seen["probe"]["audio"]
     assert not seen["path"].exists()
+
+def test_gemini_schema_and_error_detail():
+    schema=json.dumps(gemini._schema(Analysis))
+    assert "maxLength" not in schema and "minLength" not in schema and '"maxItems"' in schema
+    class Rejected(Exception):
+        code=400
+        message="Invalid JSON payload: unknown field"
+    assert "Google meldet: Invalid JSON payload: unknown field" in str(gemini._translate(Rejected()))
