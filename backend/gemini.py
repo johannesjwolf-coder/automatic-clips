@@ -71,24 +71,6 @@ def _count(tokens, response):
     tokens["input_tokens"] = (tokens["input_tokens"] or 0) + (getattr(usage, "prompt_token_count", None) or 0)
     tokens["output_tokens"] = (tokens["output_tokens"] or 0) + (getattr(usage, "candidates_token_count", None) or 0)
 
-UNSUPPORTED = ("minLength", "maxLength", "exclusiveMinimum", "exclusiveMaximum")
-
-def _schema(model):
-    """JSON-Schema für Gemini: Pydantic-Validierung bleibt serverseitig. Schlüsselwörter,
-    die Gemini ablehnt (String-Längen, exklusive Grenzen), werden entfernt und
-    $ref-Verweise auf $defs direkt eingesetzt."""
-    raw = model.model_json_schema()
-    defs = raw.get("$defs", {})
-    def clean(node):
-        if isinstance(node, dict):
-            if "$ref" in node:
-                return clean(defs[node["$ref"].rsplit("/", 1)[1]])
-            return {k: clean(v) for k, v in node.items() if k not in UNSUPPORTED and k != "$defs"}
-        if isinstance(node, list):
-            return [clean(v) for v in node]
-        return node
-    return clean(raw)
-
 def _translate(e):
     code = getattr(e, "code", None)
     messages = {400: "Gemini hat die Anfrage abgelehnt (Video, Modell oder Ausgabeformat).",
@@ -129,8 +111,9 @@ Falls kein guter Ausschnitt vorhanden ist, highlights leer und skip_reason verst
         response = client.models.generate_content(model=MODEL,
             contents=types.Content(parts=[part, types.Part(text=prompt)]),
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=_schema(Analysis),
+                # Das SDK übersetzt das Pydantic-Modell in Googles natives Schema-Format;
+                # rohe JSON-Schemas werden von Gemini je nach Schlüsselwort abgelehnt.
+                response_mime_type="application/json", response_schema=Analysis,
                 temperature=0.2, max_output_tokens=16000))
         result = Analysis.model_validate_json(response.text or "")
         duration = video.get("metadata", {}).get("duration") if video.get("metadata") else None
@@ -191,8 +174,7 @@ Sekunde {max(0.0, duration - 3):.0f} beginnen. Nur Sprechtext, keine Regieanweis
             response = client.models.generate_content(model=MODEL,
                 contents=types.Content(parts=[part, types.Part(text=prompt)]),
                 config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_json_schema=_schema(Narration),
+                    response_mime_type="application/json", response_schema=Narration,
                     temperature=0.4, max_output_tokens=4000))
             _count(tokens, response)
             lines = [l.model_dump() for l in Narration.model_validate_json(response.text or "").checked(duration).lines]

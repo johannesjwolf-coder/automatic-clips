@@ -275,12 +275,9 @@ def test_mkv_original_is_remuxed_for_gemini(client, monkeypatch):
     assert not seen["path"].exists()
 
 def test_gemini_schema_and_error_detail():
-    schema=json.dumps(gemini._schema(Analysis))
-    for keyword in ("maxLength", "minLength", "exclusiveMinimum", "$ref", "$defs"):
-        assert keyword not in schema, keyword
-    assert '"maxItems"' in schema and '"minimum"' in schema
-    highlight=gemini._schema(Analysis)["properties"]["highlights"]["items"]["properties"]
-    assert "title" in highlight and highlight["words"]["items"]["properties"]["text"]["type"] == "string"
+    # Das SDK muss das Modell ohne Pydantic-Extras wie exclusiveMinimum übersetzen können.
+    from google.genai import _transformers
+    assert _transformers.t_schema(gemini.genai.Client(api_key="test-never-sent")._api_client, Analysis).properties["highlights"].items.properties["end"].minimum == 0
     class Rejected(Exception):
         code=400
         message="Invalid JSON payload: unknown field"

@@ -31,7 +31,7 @@ def youtube_url(value: str):
 
 class Word(StrictModel):
     start: float = Field(ge=0)
-    end: float = Field(gt=0)
+    end: float = Field(ge=0)
     text: str = Field(min_length=1, max_length=80)
     @model_validator(mode="after")
     def ordered(self):
@@ -42,7 +42,7 @@ class Word(StrictModel):
 class Highlight(StrictModel):
     title: str = Field(min_length=1, max_length=180)
     start: float = Field(ge=0)
-    end: float = Field(gt=0)
+    end: float = Field(ge=0)
     score: int = Field(ge=0, le=100)
     reason: str = Field(min_length=1, max_length=3000)
     visual: str = Field(max_length=2000)

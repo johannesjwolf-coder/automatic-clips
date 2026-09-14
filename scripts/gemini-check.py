@@ -35,11 +35,8 @@ step("Text mit einfachem JSON-Schema", lambda: client.models.generate_content(mo
     config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=simple)).text.strip()[:40])
 step("Text mit Analyse-Schema (wie in der App)", lambda: client.models.generate_content(model=gemini.MODEL,
     contents="Es gibt kein Video. Liefere highlights leer und skip_reason 'Test'.",
-    config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=gemini._schema(Analysis),
+    config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=Analysis,
         temperature=0.2, max_output_tokens=16000)).text.strip()[:60])
-step("Text mit Analyse-Schema über response_schema (SDK-Konvertierung)", lambda: client.models.generate_content(model=gemini.MODEL,
-    contents="Es gibt kein Video. Liefere highlights leer und skip_reason 'Test'.",
-    config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=Analysis)).text.strip()[:60])
 
 with tempfile.TemporaryDirectory() as tmp:
     clip = Path(tmp) / "mini.mp4"
@@ -59,7 +56,7 @@ with tempfile.TemporaryDirectory() as tmp:
             contents=types.Content(parts=[part, types.Part(text="Beschreibe das Video in fünf Wörtern.")])).text.strip()[:60])
         step("Video mit Analyse-Schema (wie in der App)", lambda: client.models.generate_content(model=gemini.MODEL,
             contents=types.Content(parts=[part, types.Part(text="Liefere highlights leer und skip_reason 'Test'.")]),
-            config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=gemini._schema(Analysis),
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=Analysis,
                 temperature=0.2, max_output_tokens=16000)).text.strip()[:60])
         step("Video-Ausschnitt (video_metadata) ohne Schema", lambda: client.models.generate_content(model=gemini.MODEL,
             contents=types.Content(parts=[types.Part(file_data=types.FileData(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
