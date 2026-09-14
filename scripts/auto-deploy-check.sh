@@ -31,7 +31,7 @@
   if [ "$REQUIRE_CHECKS" = "1" ]; then
     conclusion=$(curl -fsS -H "Accept: application/vnd.github+json" \
       "https://api.github.com/repos/$REPO/commits/$remote_sha/check-runs" \
-      | python3 -c '
+      | CHECK_NAME="$CHECK_NAME" python3 -c '
 import json, sys, os
 name = os.environ["CHECK_NAME"]
 runs = [r for r in json.load(sys.stdin).get("check_runs", []) if r.get("name") == name]
@@ -40,7 +40,7 @@ if not runs:
 else:
     r = max(runs, key=lambda r: r.get("started_at") or "")
     print(r.get("conclusion") or r.get("status") or "unknown")
-' CHECK_NAME="$CHECK_NAME") || conclusion="api-error"
+') || conclusion="api-error"
 
     case "$conclusion" in
       success)
